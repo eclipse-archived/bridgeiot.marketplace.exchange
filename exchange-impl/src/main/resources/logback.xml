@@ -1,0 +1,45 @@
+<configuration scan="true" scanPeriod="10 seconds">
+    <if condition='property("MARKETENV").equals("")'>
+        <then>
+            <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+                <target>System.out</target>
+                <encoder>
+                    <pattern>%-5level %d{MMM dd HH:mm:ss.SSS} %logger{0}: %msg [%t]%n</pattern>
+                </encoder>
+            </appender>
+        </then>
+        <else>
+            <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+                <target>System.out</target>
+                <encoder>
+                    <pattern>{"tm":"%d{MMM dd HH:mm:ss.SSS}","host":"${HOSTNAME}","prc":"exchange","thr":"%t","lvl":"%-5level","env":"${MARKETENV}","cls":"%logger{0}","msg":"%msg"}%n</pattern>
+                </encoder>
+            </appender>
+        </else>
+    </if>
+
+    <logger name="akka" level="INFO">
+        <appender-ref ref="STDOUT"/>
+    </logger>
+
+    <logger name="io.funcqrs" level="INFO">
+        <appender-ref ref="STDOUT"/>
+    </logger>
+
+    <logger name="org.apache.kafka" level="WARN">
+        <appender-ref ref="STDOUT"/>
+    </logger>
+
+    <logger name="com.datastax" level="WARN">
+        <appender-ref ref="STDOUT"/>
+    </logger>
+
+    <logger name="io.netty" level="WARN">
+        <appender-ref ref="STDOUT"/>
+    </logger>
+
+    <root level="DEBUG">
+        <appender-ref ref="STDOUT"/>
+    </root>
+
+</configuration>

@@ -1,0 +1,26 @@
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix bigiot: <http://big-iot.eu/core#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix schema: <http://schema.org/> .
+
+(?category skos:narrower ?subcategory),
+(?category rdf:type bigiot:OfferingCategory)
+    -> (?subcategory rdf:type bigiot:OfferingCategory) .
+
+(?category rdf:type bigiot:OfferingCategory),
+(?category bigiot:refersTo ?class),
+(?prop schema:domainIncludes ?class)
+    -> (?prop rdf:type bigiot:DatatypeAnnotation),
+       (?category bigiot:expectedAnnotation ?prop) .
+
+(?category bigiot:expectedAnnotation ?prop),
+(?prop rdf:type bigiot:DatatypeAnnotation),
+(?prop schema:rangeIncludes ?class),
+(?otherprop schema:domainIncludes ?class)
+   -> (?otherprop rdf:type bigiot:DatatypeAnnotation),
+      (?category bigiot:expectedAnnotation ?otherprop) .
+
+(?supercategory skos:narrower ?category),
+(?category rdf:type bigiot:OfferingCategory),
+(?category bigiot:expectedAnnotation ?prop)
+  -> (?supercategory bigiot:expectedAnnotation ?prop) .

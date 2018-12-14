@@ -1,0 +1,219 @@
+image: quay.io/atos_bigiot/build_base:alpine
+# use this if gitbook is required: image: quay.io/atos_bigiot/dev_gitbook_base:latest
+
+variables:
+  DEPLOYABLE_IMAGE: registry.gitlab.com/big-iot/exchange:${CI_COMMIT_REF_NAME}-${CI_COMMIT_SHA}
+  DEPLOYABLE_IMAGE_LATEST: registry.gitlab.com/big-iot/exchange:latest
+  DEPLOYABLE_IMAGE_PILOT: registry.gitlab.com/big-iot/exchange:pilot
+  DEPLOYABLE_IMAGE_INT: registry.gitlab.com/big-iot/exchange:int
+  DEPLOYABLE_IMAGE_PROD: registry.gitlab.com/big-iot/exchange:prod
+  OPENSHIFT_CONSOLE: https://shiftmaster.big-iot.org:8443
+  OPENSHIFT_REGISTRY: docker-registry-default.big-iot.org
+  OPENSHIFT_APP: exchange
+  OPENSHIFT_PROJECT_DEV: marketplace-dev
+  OPENSHIFT_IMAGE_DEV: $OPENSHIFT_REGISTRY/$OPENSHIFT_PROJECT_DEV/$OPENSHIFT_APP:${CI_COMMIT_REF_NAME}-${CI_COMMIT_SHA}
+  OPENSHIFT_IMAGE_DEV_LATEST: $OPENSHIFT_REGISTRY/$OPENSHIFT_PROJECT_DEV/$OPENSHIFT_APP:latest
+  OPENSHIFT_PROJECT_INT: marketplace-int
+  OPENSHIFT_IMAGE_INT: $OPENSHIFT_REGISTRY/$OPENSHIFT_PROJECT_INT/$OPENSHIFT_APP:${CI_COMMIT_REF_NAME}-${CI_COMMIT_SHA}
+  OPENSHIFT_IMAGE_INT_LATEST: $OPENSHIFT_REGISTRY/$OPENSHIFT_PROJECT_INT/$OPENSHIFT_APP:latest
+  OPENSHIFT_PROJECT_PROD: marketplace-prod
+  OPENSHIFT_IMAGE_PROD: $OPENSHIFT_REGISTRY/$OPENSHIFT_PROJECT_PROD/$OPENSHIFT_APP:${CI_COMMIT_REF_NAME}-${CI_COMMIT_SHA}
+  OPENSHIFT_IMAGE_PROD_LATEST: $OPENSHIFT_REGISTRY/$OPENSHIFT_PROJECT_PROD/$OPENSHIFT_APP:latest
+
+  SCALA: scala-2.11
+  PROJECTDEPS: NEXUS
+
+stages:
+- Unittest
+# - gendocs
+- Publish
+- Development
+- Integration
+- Production
+- Pilot
+
+run-unittest:
+  stage: Unittest
+  services:
+  - tenforce/virtuoso
+  variables:
+    DBA_PASSWORD: virtuoso
+    SPARQL_UPDATE: "true"
+    # hostname tenforce-virtuoso is derived from image name tenforce/virtuoso
+    bigiot_rdf_jdbc: "jdbc:virtuoso://tenforce-virtuoso:1111"
+    bigiot_rdf_endpoint: "http://tenforce-virtuoso:8890/sparql"
+  tags:
+  - docker
+  script:
+  - sbt -mem 2048 clean compile test
+  #- sbt clean coverage test coverageReport
+  cache:
+    paths:
+    - exchange-api/target/
+    - exchange-impl/target/
+#  artifacts:
+#    paths:
+#    - exchange-api/target/
+#    - exchange-impl/target/
+
+# This job publishes to GitLab's registry
+publish-to-registry:
+  stage: Publish
+  tags:
+  - docker
+  before_script:
+  - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN registry.gitlab.com
+  script:
+  - sbt -mem 2048 publish docker:stage
+  - cd ./exchange-impl/target/docker/stage
+  - docker build --pull -t $DEPLOYABLE_IMAGE .
+  - docker push $DEPLOYABLE_IMAGE
+  - docker tag $DEPLOYABLE_IMAGE $DEPLOYABLE_IMAGE_LATEST
+  - docker push $DEPLOYABLE_IMAGE_LATEST
+  cache:
+    paths:
+    - exchange-api/target/
+    - exchange-impl/target/
+  dependencies:
+  - run-unittest
+  only:
+  - master
+  - /^.*-prod$/
+
+# This job automatically deploys to the dev environment on OpenShift
+deploy-to-dev:
+  stage: Development
+  tags:
+  - docker
+#  environment:
+#    name: marketplace-dev
+  only:
+  - master
+  script:
+  # pull the image from GitLab (in case the publish stage was running on a different runner)
+  - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN registry.gitlab.com
+  - docker pull $DEPLOYABLE_IMAGE_LATEST
+  # tag and push to OpenShift
+  - docker login -p "$OPENSHIFT_TOKEN_DEV" -u unused $OPENSHIFT_REGISTRY
+  - docker tag $DEPLOYABLE_IMAGE_LATEST $OPENSHIFT_IMAGE_DEV
+  - docker tag $OPENSHIFT_IMAGE_DEV $OPENSHIFT_IMAGE_DEV_LATEST
+  - docker push $OPENSHIFT_IMAGE_DEV
+  - docker push $OPENSHIFT_IMAGE_DEV_LATEST
+
+# Manual(!) job which deploys to the integration environment on OpenShift
+deploy-to-integration:
+  stage: Integration
+  tags:
+  - docker
+  environment:
+    name: marketplace-integration
+  only:
+  - master
+  when: manual
+  script:
+  # pull the image from GitLab (in case the publish stage was running on a different runner)
+  - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN registry.gitlab.com
+  - docker pull $DEPLOYABLE_IMAGE
+  # tag and push to OpenShift
+  - docker login -p "$OPENSHIFT_TOKEN_INT" -u unused $OPENSHIFT_REGISTRY
+  - docker tag $DEPLOYABLE_IMAGE $OPENSHIFT_IMAGE_INT
+  - docker tag $DEPLOYABLE_IMAGE $OPENSHIFT_IMAGE_INT_LATEST
+  # Create an image tag in GitLab's registry for our convenience
+  - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN registry.gitlab.com
+  - docker tag $DEPLOYABLE_IMAGE $DEPLOYABLE_IMAGE_INT
+  - docker push $DEPLOYABLE_IMAGE_INT
+  - docker push $OPENSHIFT_IMAGE_INT
+  - docker push $OPENSHIFT_IMAGE_INT_LATEST
+  
+# Manual(!) job which deploys to the production environment on OpenShift
+deploy-to-prod:
+  stage: Production
+  tags:
+  - docker
+  environment:
+    name: marketplace-prod
+  only:
+  - master
+  - /^.*-prod$/
+  when: manual
+  script:
+  # pull the image from GitLab (in case the publish stage was running on a different runner)
+  - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN registry.gitlab.com
+  - docker pull $DEPLOYABLE_IMAGE
+  # tag and push to OpenShift
+  - docker login -p "$OPENSHIFT_TOKEN_PROD" -u unused $OPENSHIFT_REGISTRY
+  - docker tag $DEPLOYABLE_IMAGE $OPENSHIFT_IMAGE_PROD
+  - docker tag $DEPLOYABLE_IMAGE $OPENSHIFT_IMAGE_PROD_LATEST
+  # Create an image tag in GitLab's registry for our convenience
+  - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN registry.gitlab.com
+  - docker tag $DEPLOYABLE_IMAGE $DEPLOYABLE_IMAGE_PROD
+  - docker push $DEPLOYABLE_IMAGE_PROD
+  - docker push $OPENSHIFT_IMAGE_PROD
+  - docker push $OPENSHIFT_IMAGE_PROD_LATEST
+
+# Manual job for creating the pilot tag
+tag-for-pilot:
+  stage: Pilot
+  tags:
+  - docker
+  environment:
+    name: pilot
+  before_script:
+  - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN registry.gitlab.com
+  script:
+  - docker tag $DEPLOYABLE_IMAGE $DEPLOYABLE_IMAGE_PILOT
+  - docker push $DEPLOYABLE_IMAGE_PILOT
+  when: manual
+  only:
+  - master
+
+# exchange-ebooks:
+#  stage: gendocs
+#  script:
+#  - gitbook install # install required plugins
+#  - mkdir ebooks
+#  - gitbook pdf . ebooks/exchange.pdf # generate pdf
+#  - gitbook epub . ebooks/exchange.epub # generate epub
+#  - gitbook mobi . ebooks/exchange.mobi # generate mobi
+#  - gitbook build . public/docs # build to public path
+#  artifacts:
+#    paths:
+#    - ebooks
+#  only:
+#    - docs
+
+# currently de-activated
+
+#exchange-gendocs:
+#  stage: gendocs
+#  cache:
+#    paths:
+#    - target/
+#  dependencies:
+#  - run-unittest
+#  script:
+#  - sbt doc
+#  - cp -rv target/${SCALA}/api public
+#  - pandoc -s -f markdown_github -t html5 -o public/index.html --css=style.css README.md
+#  - cp style.css public
+#  - cp -rv target/${SCALA}/scoverage-report public/testcoverage
+#  artifacts:
+#    paths:
+#    - public
+#  only:
+#  - master
+
+#pages:
+#  stage: publish
+#  cache:
+#    paths:
+#    - target/
+#  dependencies:
+#  - exchange-gendocs
+#  script:
+#  - /bin/true
+#  artifacts:
+#    paths:
+#    - public
+#  only:
+#  - master

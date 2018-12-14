@@ -1,0 +1,42 @@
+plugins {
+    id "com.github.hierynomus.license" version"0.14.0"
+}
+apply plugin: 'java'
+apply plugin: 'maven'
+apply plugin: 'scala'
+apply plugin: 'com.github.hierynomus.license'
+
+allprojects {
+  println 'This gradle configuration is only used for generation and validation of license headers'
+}
+
+sourceSets {
+  sbt {
+    scala.srcDir "$projectDir/../"
+    scala.include "**/*.sbt"
+  }
+  shell {
+    scala.srcDir "$projectDir/../"
+    scala.include "**/*.bat"
+    scala.include "**/*.sh"
+  }
+  api {
+    scala.srcDir "$projectDir/../exchange-api"
+    scala.include "**/*.scala"
+    scala.include "**/*.java"
+  }
+  impl {
+    scala.srcDir "$projectDir/../exchange-impl"
+    scala.include "**/*.scala"
+    scala.include "**/*.java"
+  }
+}
+
+license {
+    header file("${rootProject.projectDir}/license-header-template.txt")
+    ignoreFailures true
+    strictCheck false
+    mapping {
+      sbt='JAVADOC_STYLE'
+    }
+}
